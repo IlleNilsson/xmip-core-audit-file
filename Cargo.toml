@@ -1,37 +1,49 @@
 # Its own workspace root, so this repository builds on its own.
-#
-# Every module repository carries this and the template did not, which stopped
-# mattering the moment the template stopped sitting beside the estate: nested at
-# template/rust, cargo walked up, found the root workspace and refused to build.
-#
-# It would have bitten a generated repository the same way. A template that does
-# not obey the estate's rules produces repositories that start out breaking
-# them — doc/governance/rust-style.md section 4.
 [workspace]
 
 [package]
-name = "xmip-template-rust"
+name = "xmip-core-audit-file"
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/IlleNilsson/xmip-template-rust"
-description = "Starter template for a Rust Xmip module repository."
+repository = "https://github.com/IlleNilsson/xmip-core-audit-file"
+description = "Records appended as TOML tables to audit.toml in a directory, each in its writer's audit chain under audit.lock and on the disk before it is said written: every Xmip program's default sink (ADR-0062, ADR-0070 clause 5). A xmip-core-audit technology."
 publish = false
 
 [lib]
 path = "src/lib.rs"
 
+[dependencies]
+# A Technology depends on its parent Capability, never the reverse
+# (repository-model.md): the sink seam, the record and its TOML table, the
+# fragment's seal, and where the audit file is, which audit's reader reads
+# by the same rule.
+audit = { package = "xmip-core-audit", git = "https://github.com/IlleNilsson/xmip-core-audit", branch = "main" }
+# The audit chain's one rule (xcore::audit_chain, ADR-0070 clause 5), the
+# lock that reads through poison and the wait a writer takes its turn by.
+xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
+
+# The module's timing program (doc/governance/rust-style.md section 5c): a
+# plain cargo test leaves it out, and the landing runs it after every other
+# test here, alone, one test at a time, so what it measures is Xmip's work.
+[[test]]
+name = "measured"
+path = "tests/measured/main.rs"
+test = false
+
+[dev-dependencies]
+# The test cluster's names, from its `cluster.xmip` (`configure::fixture`).
+configure = { package = "xmip-core-configure", git = "https://github.com/IlleNilsson/xmip-core-configure", branch = "main", features = ["test-support"] }
+# The timing program's fastest of five, said as every timing program says
+# it (`xcore::latency::spread`).
+xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["test-support"] }
+
 [lints.rust]
-# forbid, not deny: a module has no business writing unsafe. The one exception
-# in the estate is xmip-core-abi, which holds the extern "C" vtable over
-# include/xmip_module.h and lowers this to deny with a reason at the call site.
+# forbid, not deny: a file is appended to through the standard library alone.
 unsafe_code = "forbid"
 
 [lints.clippy]
-# Warned, never denied. doc/governance/rust-style.md section 3: a function
-# length gate was tried in this estate's PowerShell and produced a sixteen-entry
-# waiver list while catching nothing. The number worth reading is branches, and
-# clippy prints both.
+# Warned, never denied. doc/governance/rust-style.md section 3.
 too_many_lines = "warn"
 
 # The ones that catch real defects rather than taste.

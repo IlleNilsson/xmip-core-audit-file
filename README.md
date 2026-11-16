@@ -1,42 +1,44 @@
-# Xmip repository template — Rust
+# xmip-core-audit-file
 
-This repository is the starter snapshot for a Rust Xmip module repository. It is
-not an Xmip runtime capability.
+The `file` technology of `xmip-core-audit`: records appended as `[[record]]`
+TOML tables to `audit.toml` in a directory, every Xmip program's default
+sink (ADR-0062). `FileSink` is an `audit::AuditSink`; the program that runs
+hands it to its `ProgramAudit` as it starts — `FileSink::stated(directory)`,
+the directory it was told, else the one `XMIP_AUDIT_DIRECTORY` names, else
+none and the operating system's log. Where that directory is, is audit's
+one rule (`audit::audit_store::directory`), which audit's reader reads the
+file by: the sink writes where every surface reads.
 
-For a .NET 11 surface — the CLI, the PowerShell module, the MAUI desktop GUI or
-the Blazor web GUI — use
-[xmip-template-dotnet](https://github.com/IlleNilsson/xmip-template-dotnet)
-instead. ADR-0014: every user-interfacing module is .NET 11, and
-`xmip-core-abi` is the exception.
+| Item | What it is |
+| --- | --- |
+| `FileSink` | The sink: `new(directory)`, `stated(directory)`, `path()`, and `write`, which says a record written only once it is on the disk |
+| `writer` | The file's one writer in a process: every record waiting appended in one write and one durable flush, so records handed over together share it; the file read only where this process did not leave it as it stands (ADR-0062, amendment 2026-11-13) |
+| `chain` | Where each writer's audit chain stands in the file, read under `audit.lock`, the operating system's lock on a file beside it: what was appended since this process last looked, or, for a writer it has not met, the file read back from its end to that writer's last record (ADR-0070 clause 5) |
 
-A repository generated from this template has independent history. Later
-template changes do not automatically rewrite generated repositories.
+**The chain under the lock.** Every record is appended in its writer's
+audit chain — its number and the digest of the record before it, by
+`xcore::audit_chain` — holding `audit.lock`, so two programs appending at
+once, or one started again, each go on from their writer's last whole
+record. **The sealed fragment.** A table a write left unfinished is never
+written onto: holding the lock, the next append keeps its bytes as written
+and ends them with audit's seal (`audit::audit_fragment`), so they stand
+apart, in no chain, and a verification says them apart from the chains.
 
-## Before implementation
+The record, its table, the chain's walk, the seal's words and the reader
+are `xmip-core-audit`'s; this crate appends.
 
-Follow [TEMPLATE_SETUP.md](TEMPLATE_SETUP.md), and item 3 first. The new
-repository must be classified and declared in the authoritative Xmip
-architecture manifest before its responsibility or dependencies are treated as
-accepted architecture.
+The timing program, `tests/measured`: a record the sink keeps is on the
+disk within a millisecond of the disk's own durable write of as many bytes
+(`written.rs`; the millisecond rule, `CONTRIBUTING.md`).
+
+`architecture.toml` carries the maturity.
 
 ## Toolchain
 
-`rust-toolchain.toml` pins the toolchain for the whole estate. rustup reads it
-automatically and installs what is missing. Do not change it here — raising it
-is one deliberate change across every repository.
-
-## Shared governance
-
-Repository-specific licensing remains explicit in [LICENSE](LICENSE).
-Contribution, security, support, issue and pull-request defaults are inherited
-from [IlleNilsson/.github](https://github.com/IlleNilsson/.github) when they are
-not overridden locally.
+`rust-toolchain.toml` pins the toolchain for the whole estate. Do not change it
+here.
 
 ## Verification
 
 The included workflow is manual-only and calls the versioned shared workflow at
-`IlleNilsson/.github@v1`. It does not run on pushes, pull requests or a
-schedule.
-
-The ordered stages are formatting, semantic analysis, linting, compilation and
-linking, and test execution. Packaging and publishing are not configured.
+`IlleNilsson/.github@v1`.

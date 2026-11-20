@@ -22,6 +22,16 @@ audit = { package = "xmip-core-audit", git = "https://github.com/IlleNilsson/xmi
 # The audit chain's one rule (xcore::audit_chain, ADR-0070 clause 5), the
 # lock that reads through poison and the wait a writer takes its turn by.
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
+# `temporary::Folder`, a test's folder its audit is written in, holds the
+# Library's (`file::temporary`): under test-support alone.
+file = { package = "xmip-core-library-file", git = "https://github.com/IlleNilsson/xmip-core-library-file", branch = "main", features = ["test-support"], optional = true }
+
+[features]
+# `temporary::Folder`: a test's own folder its audit is written in, removed
+# once audit's keeper kept every record handed to it before (ADR-0065,
+# amendment 2026-11-20). Test support, which only a dev-dependency turns on:
+# it keeps a test's helper out of a program's build.
+test-support = ["dep:file"]
 
 # The module's timing program (doc/governance/rust-style.md section 5c): a
 # plain cargo test leaves it out, and the landing runs it after every other
@@ -39,6 +49,10 @@ configure = { package = "xmip-core-configure", git = "https://github.com/IlleNil
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["test-support"] }
 # A test's own temporary folder (`file::temporary`); for the tests only.
 file = { package = "xmip-core-library-file", git = "https://github.com/IlleNilsson/xmip-core-library-file", branch = "main", features = ["test-support"] }
+# `tests/temporary.rs` takes its folder from `temporary`: a dev-dependency
+# on itself is how Cargo turns a feature on for the tests and for nothing
+# else.
+xmip-core-audit-file = { path = ".", features = ["test-support"] }
 
 [lints.rust]
 # forbid, not deny: a file is appended to through the standard library alone.

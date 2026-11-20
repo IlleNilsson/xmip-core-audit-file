@@ -10,12 +10,8 @@
 
 mod written;
 
-use std::path::PathBuf;
+use file::temporary::Folder;
 
-fn scratch(name: &str) -> PathBuf {
-    let directory =
-        std::env::temp_dir().join(format!("xmip-audit-file-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&directory);
-    std::fs::create_dir_all(&directory).expect("made");
-    directory
+fn scratch(name: &str) -> Folder {
+    Folder::new(&format!("audit-file-{name}"))
 }

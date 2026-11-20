@@ -76,6 +76,7 @@ mod tests {
     use audit::audit_chain::chains;
     use audit::audit_entry::parse;
     use audit::origin::Origin;
+    use file::temporary::Folder;
     use std::collections::BTreeMap;
     use std::fs;
     use std::sync::Arc;
@@ -95,17 +96,14 @@ mod tests {
         }
     }
 
-    fn scratch(name: &str) -> PathBuf {
-        let directory =
-            std::env::temp_dir().join(format!("xmip-audit-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&directory);
-        directory
+    fn scratch(name: &str) -> Folder {
+        Folder::new(&format!("audit-file-{name}"))
     }
 
     #[test]
     fn records_append_to_one_file_that_reads_as_toml_tables() {
         let directory = scratch("append");
-        let sink = FileSink::new(&directory);
+        let sink = FileSink::new(&*directory);
 
         sink.write(&record("start")).expect("written");
         sink.write(&record("stop")).expect("written");
@@ -114,13 +112,12 @@ mod tests {
         assert_eq!(text.matches("[[record]]").count(), 2, "{text}");
         assert!(text.contains("action = \"start\""), "{text}");
         assert!(text.contains("action = \"stop\""), "{text}");
-        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]
     fn records_handed_over_at_once_are_each_kept_once_in_one_whole_chain() {
         let directory = scratch("together");
-        let sink = Arc::new(FileSink::new(&directory));
+        let sink = Arc::new(FileSink::new(&*directory));
         let (threads, each) = (8, 25);
         let writing: Vec<_> = (0..threads)
             .map(|thread| {
@@ -152,13 +149,11 @@ mod tests {
         let verdict = &chains(&read.entries, &["probe"])[0];
         assert!(verdict.whole(), "{}", verdict.said());
         assert_eq!(verdict.records, u64::try_from(threads * each).expect("few"));
-        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]
     fn a_directory_that_cannot_be_made_is_refused_with_the_path() {
         let directory = scratch("blocked");
-        fs::create_dir_all(&directory).expect("made");
         let blocker = directory.join("a-file");
         fs::write(&blocker, b"not a directory").expect("written");
 
@@ -170,7 +165,6 @@ mod tests {
             error.to_string().contains("could not be written"),
             "{error}"
         );
-        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]

@@ -63,7 +63,7 @@ fn durable(beside: &Path, bytes: usize) -> Duration {
 #[test]
 fn a_record_is_on_the_disk_within_a_millisecond_of_the_disks_own_durable_write() {
     let directory = scratch("written");
-    let sink = FileSink::new(&directory);
+    let sink = FileSink::new(&*directory);
     // A process's first record reads the file once, to find its chain.
     sink.write(&record(0)).expect("written");
     let beside = directory.join("beside.toml");
@@ -82,5 +82,4 @@ fn a_record_is_on_the_disk_within_a_millisecond_of_the_disks_own_durable_write()
         kept < own + BOUND,
         "a record took {kept:?}, the disk's own durable write {own:?}"
     );
-    let _ = fs::remove_dir_all(&directory);
 }

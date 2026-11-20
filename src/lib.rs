@@ -27,6 +27,8 @@ use audit::audit_store::{self, FILE_NAME};
 use audit::{AuditError, AuditSink};
 
 mod chain;
+#[cfg(feature = "test-support")]
+pub mod temporary;
 mod writer;
 
 /// Records appended to [`FILE_NAME`] in one directory.

@@ -14,6 +14,18 @@ file by: the sink writes where every surface reads.
 | `FileSink` | The sink: `new(directory)`, `stated(directory)`, `path()`, and `write`, which says a record written only once it is on the disk |
 | `writer` | The file's one writer in a process: every record waiting appended in one write and one durable flush, so records handed over together share it; the file read only where this process did not leave it as it stands (ADR-0062, amendment 2026-11-13) |
 | `chain` | Where each writer's audit chain stands in the file, read under `audit.lock`, the operating system's lock on a file beside it: what was appended since this process last looked, or, for a writer it has not met, the file read back from its end to that writer's last record (ADR-0070 clause 5) |
+| `temporary` | Behind the `test-support` feature: `Folder`, a test's own folder its audit is written in, a `file::temporary::Folder` removed only once audit's keeper kept every record handed to it before (ADR-0065, amendment 2026-11-20) |
+
+**A test's audit folder.** A record made where its caller must not wait
+for a disk, an Event subscription's close record among them, is handed to
+audit's keeper and written after the caller went on; a program's stop is
+kept after it, and a test records no stop. So a test that let go of its
+folder at once had the keeper make the folder and its audit file again,
+and the folder outlived its test. A test whose audit takes records through
+the keeper — an Event subscription's, a sync plane's — makes its folder
+with `temporary::Folder`, first, so that it is dropped last; only a
+dev-dependency turns `test-support` on. Held by `tests/temporary.rs`, a
+test binary of its own so the keeper's inbox is its alone.
 
 **The chain under the lock.** Every record is appended in its writer's
 audit chain — its number and the digest of the record before it, by

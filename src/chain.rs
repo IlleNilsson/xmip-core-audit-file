@@ -171,6 +171,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::fs;
 
+    use file::temporary::Folder;
     use xcore::{ExecutionPhase, Severity};
 
     use super::*;
@@ -178,11 +179,8 @@ mod tests {
     use audit::audit_chain::{Break, Verdict, chains};
     use audit::program_audit::ProgramAudit;
 
-    fn scratch(name: &str) -> PathBuf {
-        let directory =
-            std::env::temp_dir().join(format!("xmip-audit-chain-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&directory);
-        directory
+    fn scratch(name: &str) -> Folder {
+        Folder::new(&format!("audit-chain-{name}"))
     }
 
     fn act(audit: &ProgramAudit, action: &str) {
@@ -231,7 +229,6 @@ mod tests {
         let verdict = &verdicts(&path, &["probe"])[0];
         assert!(verdict.whole(), "{}", verdict.said());
         assert_eq!(verdict.records, 4);
-        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]
@@ -280,18 +277,17 @@ mod tests {
         };
         assert_eq!(verdict.broken, Some(moved));
         assert!(verdict.said().starts_with("FAILED: "), "{}", verdict.said());
-        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]
     fn a_writer_started_again_continues_its_chain_from_its_last_record() {
         let directory = scratch("restart");
         let (_, path) = four(&directory);
-        let other = ProgramAudit::new("another", Some(FileSink::new(&directory)));
+        let other = ProgramAudit::new("another", Some(FileSink::new(&*directory)));
         act(&other, "between");
 
         forget(&path);
-        let again = ProgramAudit::new("probe", Some(FileSink::new(&directory)));
+        let again = ProgramAudit::new("probe", Some(FileSink::new(&*directory)));
         act(&again, "five");
 
         let text = fs::read_to_string(&path).expect("read");
@@ -299,7 +295,6 @@ mod tests {
         let verdict = &verdicts(&path, &["probe"])[0];
         assert!(verdict.whole(), "{}", verdict.said());
         assert_eq!(verdict.records, 5);
-        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]
@@ -307,15 +302,15 @@ mod tests {
         let directory = scratch("two");
         let node = configure::fixture::test_cluster().node_scope(0);
         let (first, second) = (
-            ProgramAudit::new("probe", Some(FileSink::new(&directory))),
-            ProgramAudit::new("probe", Some(FileSink::new(&directory))),
+            ProgramAudit::new("probe", Some(FileSink::new(&*directory))),
+            ProgramAudit::new("probe", Some(FileSink::new(&*directory))),
         );
         second.locate(&node);
         for action in ["one", "two", "three"] {
             act(&first, action);
             act(&second, action);
         }
-        let path = FileSink::new(&directory).path();
+        let path = FileSink::new(&*directory).path();
         let written = tables(&path);
         let without = [
             &written[0],
@@ -330,7 +325,6 @@ mod tests {
         assert!(!verdicts[0].whole(), "the program's lost its second");
         assert!(verdicts[1].whole(), "{}", verdicts[1].said());
         assert_eq!(verdicts[1].records, 3);
-        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]
@@ -346,7 +340,7 @@ mod tests {
         fs::write(&path, format!("{before}{cut}")).expect("written");
 
         forget(&path);
-        let again = ProgramAudit::new("probe", Some(FileSink::new(&directory)));
+        let again = ProgramAudit::new("probe", Some(FileSink::new(&*directory)));
         act(&again, "six");
 
         let bytes = fs::read(&path).expect("read");
@@ -381,7 +375,6 @@ mod tests {
             "{}",
             sealed[0].said()
         );
-        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]
@@ -408,6 +401,5 @@ mod tests {
             "{}",
             open[0].said()
         );
-        let _ = fs::remove_dir_all(&directory);
     }
 }

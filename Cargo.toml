@@ -19,6 +19,11 @@ audit = { package = "xmip-core-audit", git = "https://github.com/IlleNilsson/xmi
 # The audit chain's one rule (xcore::audit_chain, ADR-0070 clause 5), the
 # lock that reads through poison and the wait a writer takes its turn by.
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
+# The line naming a writer found in the file read back at the speed of
+# reading it (`chain`), where a search a byte at a time cost 5 ms a
+# megabyte (2026-11-25). Already in every Xmip program through quick-xml,
+# codec's XML reader, so no party is added.
+memchr = "2.8"
 # `temporary::Folder`, a test's folder its audit is written in, holds the
 # Library's (`file::temporary`): under test-support alone.
 file = { package = "xmip-core-library-file", git = "https://github.com/IlleNilsson/xmip-core-library-file", branch = "main", features = ["test-support"], optional = true }

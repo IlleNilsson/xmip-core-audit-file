@@ -7,7 +7,11 @@
 //!
 //! - `written.rs`: a record the file sink keeps is on the disk within a
 //!   millisecond of the disk's own durable write of as many bytes.
+//! - `first.rs`: a process's first record of a writer its file holds far
+//!   back is on the disk within a millisecond of the disk's own reading of
+//!   the file and durable write of as many bytes.
 
+mod first;
 mod written;
 
 use file::temporary::Folder;

@@ -8,7 +8,9 @@
 //! to date under it: what was appended since it last looked is read, never
 //! the whole history. A writer this process has not met yet is found by
 //! reading back from the end of the file to its last record: the last
-//! record of its chain, wherever the writer restarted. A file that got
+//! record of its chain, wherever the writer restarted, found by the line
+//! that names its writer and the one table holding it parsed, so what is
+//! passed over is read and searched once and never parsed. A file that got
 //! shorter was replaced, and is looked at again. A record whose write was
 //! interrupted is no record: sealed apart, it is in no chain, and the next
 //! record of its writer goes on from the last whole one.
@@ -26,10 +28,13 @@ use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
+
+use memchr::memmem::{self, Finder, FinderRev};
 use xcore::audit_chain::{FIRST, Head};
 use xcore::lock::Locked;
 
 use audit::audit_entry::{AuditEntry, parse};
+use audit::audit_record::writer_line;
 
 /// The file beside `audit.toml` an appender holds while it appends: the
 /// operating system's own lock, which ends with the process.
@@ -124,39 +129,94 @@ fn head_of(entry: &AuditEntry) -> Head {
 
 /// The bytes from `start` to `end`.
 fn read_from(file: &mut File, start: u64, end: u64) -> io::Result<Vec<u8>> {
-    file.seek(SeekFrom::Start(start))?;
     let mut bytes = Vec::new();
-    file.take(end - start).read_to_end(&mut bytes)?;
+    read_into(file, start, end, &mut bytes)?;
     Ok(bytes)
 }
 
+/// The bytes from `start` to `end` after what `bytes` holds.
+fn read_into(file: &mut File, start: u64, end: u64, bytes: &mut Vec<u8>) -> io::Result<()> {
+    file.seek(SeekFrom::Start(start))?;
+    file.take(end - start).read_to_end(bytes)?;
+    Ok(())
+}
+
 /// `writer`'s last record, read back from the end of the file a window at
-/// a time, from the first table that starts whole in the window.
+/// a time, each window before the last, until the line naming the writer
+/// is found in a whole table: each byte read once and searched once, and
+/// only that table parsed. Until 2026-11-25 every window was parsed whole,
+/// and a writer last met megabytes back took seconds over its first record
+/// in a process: a System Tests far end, 1.5 to 3 s in a 7 MB file.
 fn from_the_end(file: &mut File, length: u64, writer: &str) -> io::Result<Head> {
+    let line = format!("\n{}", writer_line(writer));
+    // What is read, from `start` to the end of the file, and how many of
+    // its bytes, from its first, still begin a line to search.
+    let (mut start, mut read, mut unsearched) = (length, Vec::new(), 0);
     let mut window = WINDOW;
     loop {
-        let start = length.saturating_sub(window);
-        let bytes = read_from(file, start, length)?;
-        let from = if start == 0 {
-            0
-        } else {
-            bytes
-                .windows(HEADER.len())
-                .position(|header| header == HEADER)
-                .map_or(bytes.len(), |at| at + 1)
+        let from = start.saturating_sub(window);
+        let added = usize::try_from(start - from).unwrap_or(usize::MAX);
+        let mut earlier = Vec::with_capacity(added.saturating_add(read.len()));
+        read_into(file, from, start, &mut earlier)?;
+        unsearched += earlier.len();
+        earlier.extend_from_slice(&read);
+        (start, read) = (from, earlier);
+        match searched(&read, unsearched, line.as_bytes(), writer, start == 0) {
+            Reading::Found(head) => return Ok(head),
+            Reading::Further(_) if start == 0 => return Ok(Head::GENESIS),
+            Reading::Further(left) => unsearched = left,
+        }
+        window = window.saturating_mul(4);
+    }
+}
+
+/// What a window read back said of a writer's last record.
+enum Reading {
+    /// Its head.
+    Found(Head),
+    /// Not in it: how many of its first bytes still begin a line to search
+    /// once the window before it is read, a table begun before it among them.
+    Further(usize),
+}
+
+/// `writer`'s last whole record in `read`, among the lines `line` that
+/// begin in its first `unsearched` bytes, the last first. `whole` says
+/// `read` begins with the file, so a table with no header before it is
+/// the file's first.
+fn searched(read: &[u8], unsearched: usize, line: &[u8], writer: &str, whole: bool) -> Reading {
+    let end = (unsearched + line.len() - 1).min(read.len());
+    let headed = FinderRev::new(HEADER);
+    for at in named(&read[..end], line).into_iter().rev() {
+        let begins = headed.rfind(&read[..at]).map(|header| header + 1);
+        let Some(begins) = begins.or(whole.then_some(0)) else {
+            return Reading::Further(at + 1);
         };
-        let found = parse(&bytes[from..])
+        let ends = memmem::find(&read[at..], HEADER).map_or(read.len(), |header| at + header + 1);
+        // A sealed fragment names its writer too, and is no record.
+        let found = parse(&read[begins..ends])
             .entries
             .iter()
-            .rev()
             .find(|entry| entry.writer.as_deref() == Some(writer))
             .map(head_of);
-        match found {
-            Some(head) => return Ok(head),
-            None if start == 0 => return Ok(Head::GENESIS),
-            None => window = window.saturating_mul(4),
+        if let Some(head) = found {
+            return Reading::Found(head);
         }
     }
+    Reading::Further(0)
+}
+
+/// Where `line` begins in `bytes`, each place, first to last: searched
+/// forward, which memchr does a vector of bytes at a time and its search
+/// back does not, so what is passed over is searched at the speed of
+/// reading it.
+fn named(bytes: &[u8], line: &[u8]) -> Vec<usize> {
+    let finder = Finder::new(line);
+    let (mut places, mut from) = (Vec::new(), 0);
+    while let Some(at) = finder.find(&bytes[from..]) {
+        places.push(from + at);
+        from += at + 1;
+    }
+    places
 }
 
 /// Forget what this process knows of `path`, as a process started anew
@@ -177,6 +237,7 @@ mod tests {
     use super::*;
     use crate::FileSink;
     use audit::audit_chain::{Break, Verdict, chains};
+    use audit::audit_record::AuditRecord;
     use audit::program_audit::ProgramAudit;
 
     fn scratch(name: &str) -> Folder {
@@ -295,6 +356,73 @@ mod tests {
         let verdict = &verdicts(&path, &["probe"])[0];
         assert!(verdict.whole(), "{}", verdict.said());
         assert_eq!(verdict.records, 5);
+    }
+
+    /// Records of the program `another` appended to the file at `path` until
+    /// it is `length` bytes long, the last one's message making up the rest.
+    fn filled(path: &Path, length: usize) {
+        let another = |position: u64, previous: &xcore::audit_chain::Digest, pad: usize| {
+            AuditRecord {
+                audit_id: xcore::AuditId::new(u128::from(position)),
+                origin: audit::origin::Origin::here("another"),
+                scope: None,
+                action: "between".to_string(),
+                phase: ExecutionPhase::Begin,
+                severity: Severity::Information,
+                timestamp_unix_nanos: 0,
+                message: Some("x".repeat(pad)),
+                properties: BTreeMap::new(),
+            }
+            .chained("another", position, previous)
+        };
+        let now = usize::try_from(fs::metadata(path).expect("there").len()).expect("small");
+        let (mut text, mut previous, mut position) = (String::new(), [0; 32], 1);
+        loop {
+            let (table, own) = another(position, &previous, 0);
+            if now + text.len() + 2 * table.len() > length {
+                break;
+            }
+            text.push_str(&table);
+            (previous, position) = (own, position + 1);
+        }
+        let bare = another(position, &previous, 0).0.len();
+        text.push_str(&another(position, &previous, length - now - text.len() - bare).0);
+        assert_eq!(now + text.len(), length);
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(path)
+            .expect("opened");
+        std::io::Write::write_all(&mut file, text.as_bytes()).expect("written");
+    }
+
+    /// A writer last met windows back goes on from its last record wherever
+    /// a window's edge falls: before the table naming it, in the line naming
+    /// it, or after that line.
+    #[test]
+    fn a_writer_met_windows_back_goes_on_from_its_last_record_wherever_a_window_ends() {
+        let window = usize::try_from(WINDOW).expect("small");
+        for (name, edge) in [
+            ("header", -20),
+            ("line", 3),
+            ("after", 40),
+            ("far", 900_000),
+        ] {
+            let directory = scratch(&format!("window-{name}"));
+            let (_, path) = four(&directory);
+            let text = fs::read_to_string(&path).expect("read");
+            let line = format!("\n{}", writer_line("probe"));
+            let named = i64::try_from(text.rfind(&line).expect("named")).expect("small");
+            let length = named + edge + i64::try_from(window).expect("small");
+            filled(&path, usize::try_from(length).expect("after the records"));
+
+            forget(&path);
+            let again = ProgramAudit::new("probe", Some(FileSink::new(&*directory)));
+            act(&again, "five");
+
+            let verdict = &verdicts(&path, &["probe"])[0];
+            assert!(verdict.whole(), "{name}: {}", verdict.said());
+            assert_eq!(verdict.records, 5, "{name}");
+        }
     }
 
     #[test]

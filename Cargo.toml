@@ -1,11 +1,11 @@
 [package]
 name = "xmip-core-audit-file"
-version = "0.1.0"
-edition = "2024"
-license = "AGPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 repository = "https://github.com/IlleNilsson/xmip-core-audit-file"
 description = "Records appended as TOML tables to audit.toml in a directory, each in its writer's audit chain under audit.lock and on the disk before it is said written: every Xmip program's default sink (ADR-0062, ADR-0070 clause 5). A xmip-core-audit technology."
-publish = false
+publish.workspace = true
 
 [lib]
 path = "src/lib.rs"
@@ -56,17 +56,5 @@ file = { package = "xmip-core-library-file", git = "https://github.com/IlleNilss
 # else.
 xmip-core-audit-file = { path = ".", features = ["test-support"] }
 
-[lints.rust]
-# forbid, not deny: a file is appended to through the standard library alone.
-unsafe_code = "forbid"
-
-[lints.clippy]
-# Warned, never denied. doc/governance/rust-style.md section 3.
-too_many_lines = "warn"
-
-# The ones that catch real defects rather than taste.
-pedantic = { level = "warn", priority = -1 }
-missing_errors_doc = "warn"
-missing_panics_doc = "warn"
-unwrap_used = "warn"
-expect_used = "allow"
+[lints]
+workspace = true
